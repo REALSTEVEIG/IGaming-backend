@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions SessionParticipant[]
+
+  @@map("users")
+}
+
+model GameSession {
+  id           String    @id @default(cuid())
+  sessionNumber Int      @unique @default(autoincrement())
+  startedAt    DateTime  @default(now())
+  endsAt       DateTime
+  winningNumber Int?
+  isActive     Boolean   @default(true)
+  isCompleted  Boolean   @default(false)
+  startedById  String?
+
+  participants SessionParticipant[]
+
+  @@map("game_sessions")
+}
+
+model SessionParticipant {
+  id            String   @id @default(cuid())
+  userId        String
+  sessionId     String
+  chosenNumber  Int?
+  isWinner      Boolean  @default(false)
+  joinedAt      DateTime @default(now())
+  isInQueue     Boolean  @default(false)
+
+  user    User        @relation(fields: [userId], references: [id])
+  session GameSession @relation(fields: [sessionId], references: [id])
+
+  @@unique([userId, sessionId])
+  @@map("session_participants")
+}
