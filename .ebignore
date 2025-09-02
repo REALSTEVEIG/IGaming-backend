@@ -1,0 +1,26 @@
+# Development files
+node_modules/
+*.log
+.env.local
+.env.development
+.env.test
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+coverage/
+*.test.js
+test/
+
+# Documentation
+README.md
+docs/
+
+# Git files
+.git/
+.gitignore
+
