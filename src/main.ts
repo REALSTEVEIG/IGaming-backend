@@ -6,12 +6,16 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Configure CORS based on environment
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : [
+        'http://localhost:3000',
+        'https://main.d2z5w7ctkbed30.amplifyapp.com',
+      ];
+
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'https://main.d2z5w7ctkbed30.amplifyapp.com',
-      // Add any other frontend domains here
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
