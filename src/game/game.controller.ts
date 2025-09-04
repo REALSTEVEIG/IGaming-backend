@@ -19,6 +19,20 @@ export class GameController {
     return this.gameService.getSessionStatus();
   }
 
+  @Get('my-session')
+  @ApiOperation({ summary: 'Get current user session status' })
+  @ApiResponse({ status: 200, description: 'User session status retrieved' })
+  async getMySession(@Request() req) {
+    return this.gameService.getUserSession(req.user.id);
+  }
+
+  @Get('latest-result')
+  @ApiOperation({ summary: 'Get latest completed session result' })
+  @ApiResponse({ status: 200, description: 'Latest session result retrieved' })
+  async getLatestResult(@Request() req) {
+    return this.gameService.getLatestCompletedSession(req.user.id);
+  }
+
   @Post('join')
   @ApiOperation({ summary: 'Join current session' })
   @ApiResponse({ status: 201, description: 'Joined session successfully' })

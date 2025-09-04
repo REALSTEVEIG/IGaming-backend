@@ -41,21 +41,6 @@ export class GameService {
     
     // Use database transaction to prevent race conditions
     return this.prisma.$transaction(async (tx) => {
-      // Check if user already has an active session
-      const existingParticipant = await tx.sessionParticipant.findFirst({
-        where: {
-          userId,
-          session: {
-            isActive: true,
-            isCompleted: false,
-          },
-        },
-      });
-
-      if (existingParticipant) {
-        throw new BadRequestException('User already has an active session');
-      }
-
       // Get or create current session with fresh data inside transaction
       let currentSession = await tx.gameSession.findFirst({
         where: {
@@ -73,25 +58,37 @@ export class GameService {
       
       // If no active session exists, create one
       if (!currentSession) {
+        console.log('SERVICE: Creating new session...');
         const newSession = await tx.gameSession.create({
           data: {
-            endsAt: new Date(Date.now() + (parseInt(process.env.SESSION_DURATION) || 20) * 1000),
+            endsAt: new Date(Date.now() + (parseInt(process.env.SESSION_DURATION) || 30) * 1000),
             startedById: userId,
             isActive: true,
             isCompleted: false,
           },
         });
-        return tx.sessionParticipant.create({
+        
+        const participant = await tx.sessionParticipant.create({
           data: {
             userId,
             sessionId: newSession.id,
             isInQueue: false,
           },
         });
+        
+        console.log('SERVICE: New session created successfully');
+        return participant;
       }
 
       if (new Date() > currentSession.endsAt) {
         throw new BadRequestException('Session has ended');
+      }
+
+      // Check if user is already in THIS specific session
+      const existingParticipant = currentSession.participants.find(p => p.userId === userId);
+      if (existingParticipant) {
+        // User already in this session, just return their participation
+        return existingParticipant;
       }
 
       // Count active participants with fresh data
@@ -190,22 +187,48 @@ export class GameService {
   }
 
   async completeSession(sessionId: string) {
+    console.log('SERVICE: completeSession called for session:', sessionId);
+    
     // First check if session has any active participants
     const session = await this.prisma.gameSession.findUnique({
       where: { id: sessionId },
       include: {
         participants: {
-          where: { isInQueue: false }
+          include: {
+            user: true
+          }
         }
       }
     });
 
     if (!session) {
+      console.log('SERVICE: Session not found:', sessionId);
       throw new Error('Session not found');
     }
 
+    console.log('SERVICE: Session found with participants:', {
+      sessionId,
+      totalParticipants: session.participants.length,
+      participants: session.participants.map(p => ({
+        username: p.user.username,
+        isInQueue: p.isInQueue,
+        chosenNumber: p.chosenNumber
+      }))
+    });
+
+    // Filter active participants (not in queue)
+    const activeParticipants = session.participants.filter(p => !p.isInQueue);
+    console.log('SERVICE: Active participants after filtering:', {
+      count: activeParticipants.length,
+      participants: activeParticipants.map(p => ({
+        username: p.user.username,
+        chosenNumber: p.chosenNumber
+      }))
+    });
+
     // If no active participants, delete the session instead of completing it
-    if (session.participants.length === 0) {
+    if (activeParticipants.length === 0) {
+      console.log('SERVICE: No active participants found, deleting session');
       await this.prisma.gameSession.delete({
         where: { id: sessionId }
       });
@@ -213,6 +236,7 @@ export class GameService {
     }
 
     const winningNumber = Math.floor(Math.random() * 9) + 1;
+    console.log('SERVICE: Generated winning number:', winningNumber);
 
     const updatedSession = await this.prisma.gameSession.update({
       where: { id: sessionId },
@@ -223,7 +247,9 @@ export class GameService {
       },
     });
 
-    await this.prisma.sessionParticipant.updateMany({
+    console.log('SERVICE: Session marked as completed');
+
+    const winnersUpdated = await this.prisma.sessionParticipant.updateMany({
       where: {
         sessionId,
         chosenNumber: winningNumber,
@@ -234,6 +260,7 @@ export class GameService {
       },
     });
 
+    console.log('SERVICE: Winners updated:', winnersUpdated.count);
     return updatedSession;
   }
 
@@ -266,6 +293,7 @@ export class GameService {
         timeLeft: 0,
         participantCount: 0,
         queueCount: 0,
+        session: null,
       };
     }
 
@@ -279,6 +307,99 @@ export class GameService {
       participantCount: activeParticipants.length,
       queueCount: queuedParticipants.length,
       sessionId: currentSession.id,
+      session: currentSession, // Return the actual session object
+    };
+  }
+
+  async getUserSession(userId: string) {
+    // Find the user's most recent active participation
+    const participant = await this.prisma.sessionParticipant.findFirst({
+      where: {
+        userId,
+        session: {
+          isActive: true,
+          isCompleted: false,
+        },
+      },
+      include: {
+        session: {
+          include: {
+            participants: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        joinedAt: 'desc',
+      },
+    });
+
+    return participant ? {
+      session: participant.session,
+      timeRemaining: Math.max(0, Math.floor((participant.session.endsAt.getTime() - Date.now()) / 1000)),
+      participantData: participant,
+    } : null;
+  }
+
+  async getLatestCompletedSession(userId: string) {
+    // Find the user's most recent completed session
+    const participant = await this.prisma.sessionParticipant.findFirst({
+      where: {
+        userId,
+        session: {
+          isActive: false,
+          isCompleted: true,
+          winningNumber: {
+            not: null,
+          },
+        },
+      },
+      include: {
+        session: {
+          include: {
+            participants: {
+              where: {
+                isInQueue: false, // Only include active participants
+              },
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        session: {
+          endsAt: 'desc', // Most recent session first
+        },
+      },
+    });
+
+    if (!participant || !participant.session) {
+      return null;
+    }
+
+    const session = participant.session;
+    const allParticipants = session.participants;
+    const winners = allParticipants.filter(p => p.isWinner);
+
+    // Format the response to match the frontend gameResult format
+    return {
+      winningNumber: session.winningNumber,
+      participants: allParticipants.map(p => ({
+        username: p.user.username,
+        chosenNumber: p.chosenNumber,
+        isWinner: p.isWinner,
+      })),
+      winners: winners.map(p => ({
+        username: p.user.username,
+        chosenNumber: p.chosenNumber,
+      })),
+      totalPlayers: allParticipants.length,
+      totalWinners: winners.length,
     };
   }
 }
