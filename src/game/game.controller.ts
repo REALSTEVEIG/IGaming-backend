@@ -71,17 +71,17 @@ export class GameController {
     return this.gameService.startPrivateSession(req.user.id, sessionId);
   }
 
-  @Get('invitation/:ivitation/accept')
+  @Get('invitation/:invitationId/accept')
   @ApiOperation({ summary: 'Accept invitation' })
-  @ApiResponse({ status: 200, description: 'Private session created and invitation sent' })
-  async acceptInvitation(@Request() req, @Param('ivitationId') invitationId: string) {
+  @ApiResponse({ status: 200, description: 'Invitation accepted successfully' })
+  async acceptInvitation(@Request() req, @Param('invitationId') invitationId: string) {
     return this.gameService.acceptInvitation(req.user.id, invitationId);
   }
 
-  @Post('invitation/:ivitation/reject')
-  @ApiOperation({ summary: 'Accept invitation' })
-  @ApiResponse({ status: 200, description: 'Private session created and invitation sent' })
-  async rejectInvitation(@Request() req, @Param('ivitationId') invitationId: string) {
+  @Post('invitation/:invitationId/reject')
+  @ApiOperation({ summary: 'Reject invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation rejected successfully' })
+  async rejectInvitation(@Request() req, @Param('invitationId') invitationId: string) {
     return this.gameService.rejectInvitation(req.user.id, invitationId);
   }
 }

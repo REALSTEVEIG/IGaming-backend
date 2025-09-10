@@ -407,8 +407,8 @@ export class GameService {
     const maxPlayers = parseInt(process.env.MAX_PLAYERS_PER_SESSION) || 10
 
     if (dto.invitedUsernames.length > maxPlayers - 1){
-      throw new BadRequestException(`Cannot invite more than 10 players at a time`);
-    } 
+      throw new BadRequestException(`Cannot invite more than ${maxPlayers - 1} players.`);
+    }
 
     const invitedUsers = await this.prisma.user.findMany({where: { username: { in: dto.invitedUsernames } }})
 
@@ -433,18 +433,18 @@ export class GameService {
       }
     })
 
-    for (const invited of invitedUsers) {
-      await this.prisma.invitation.create({
-        data: {
-          sessionId: session.id,
-          invitedUserId: invited.id,
-          inviterUserId: creatorId,
-          status: 'PENDING'
-        }
-      })
-    }
+    const invitationData = invitedUsers.map(invited => ({
+      sessionId: session.id,
+      invitedUserId: invited.id,
+      inviterUserId: creatorId,
+      status: 'PENDING' as const
+    }));
 
-    return { message: 'Private session created and invition sent', session: session.id }
+    await this.prisma.invitation.createMany({
+      data: invitationData,
+    });
+
+    return { message: 'Private session created and invitations sent', session: session.id }
 
   }
 
@@ -456,7 +456,11 @@ export class GameService {
     }
 
     if (!session.isPrivate) {
-      throw new ForbiddenException('Only creator can start session')
+      throw new BadRequestException('This is not a private session.')
+    }
+
+    if (session.startedById !== userId) {
+      throw new ForbiddenException('Only the creator can start the session.')
     }
 
     if (session.isActive) {
@@ -479,35 +483,59 @@ export class GameService {
   }
 
   async acceptInvitation (userId: string, invitationId: string) {
-    const invitation = await this.prisma.invitation.findUnique({
-      where: { id: invitationId },
-      include: {session: { include: { participants: true } }}
-    })
+    const maxPlayers = parseInt(process.env.MAX_PLAYERS_PER_SESSION) || 10;
 
-    if (!invitation) {
-      throw new NotFoundException('Invitation not found')
-    }
+    return this.prisma.$transaction(async (tx) => {
+      const invitation = await tx.invitation.findUnique({
+        where: { id: invitationId },
+        include: { session: { include: { participants: true } } }
+      });
 
-    await this.prisma.invitation.update({where: { id: invitationId }, data: { status: 'ACCEPTED'}})
+      if (!invitation) {
+        throw new NotFoundException('Invitation not found');
+      }
 
-    await this.prisma.sessionParticipant.create({ data: { userId, sessionId: invitation.sessionId, isInQueue: false } })
+      if (invitation.invitedUserId !== userId) {
+        throw new ForbiddenException('You are not authorized to accept this invitation.');
+      }
 
-    return { message: "Invitation accepted"  }
-  }  
+      if (invitation.status !== 'PENDING') {
+        throw new BadRequestException(`Invitation has already been ${invitation.status.toLowerCase()}.`);
+      }
+
+      if (invitation.session.participants.length >= maxPlayers) {
+        // Also update invitation to prevent future attempts
+        await tx.invitation.update({ where: { id: invitationId }, data: { status: 'REJECTED' } });
+        throw new BadRequestException('Session is full.');
+      }
+
+      await tx.invitation.update({ where: { id: invitationId }, data: { status: 'ACCEPTED' } });
+
+      await tx.sessionParticipant.create({ data: { userId, sessionId: invitation.sessionId, isInQueue: false } });
+
+      return { message: "Invitation accepted" };
+    });
+  }
 
   async rejectInvitation (userId: string, invitationId: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
-      include: {session: { include: { participants: true } }}
-    })
+    });
 
     if (!invitation) {
-      throw new NotFoundException('Invitation not found')
+      throw new NotFoundException('Invitation not found');
     }
 
-    await this.prisma.invitation.update({where: { id: invitationId }, data: { status: 'REJECTED'}})
+    if (invitation.invitedUserId !== userId) {
+      throw new ForbiddenException('You are not authorized to reject this invitation.');
+    }
 
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestException(`Invitation has already been ${invitation.status.toLowerCase()}.`);
+    }
 
-    return { message: "Invitation rejected"  }
+    await this.prisma.invitation.update({ where: { id: invitationId }, data: { status: 'REJECTED' } });
+
+    return { message: "Invitation rejected" };
   }
 }
