@@ -1,8 +1,8 @@
-import { Controller, Post, Get, Delete, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, UseGuards, Request, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 
 import { GameService } from './game.service';
-import { JoinSessionDto, ChooseNumberDto } from './dto/game.dto';
+import { JoinSessionDto, ChooseNumberDto, CreatePrivateSessionDto } from './dto/game.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @ApiTags('game')
@@ -55,5 +55,33 @@ export class GameController {
   @ApiResponse({ status: 400, description: 'Invalid number or no active session' })
   async chooseNumber(@Request() req, @Body() chooseNumberDto: ChooseNumberDto) {
     return this.gameService.chooseNumber(req.user.id, chooseNumberDto);
+  }
+
+  @Post('create-private')
+  @ApiOperation({ summary: 'Create a private session and invite users' })
+  @ApiResponse({ status: 201, description: 'Private session created and invitation sent' })
+  async createPrivateSession(@Request() req, @Body() createPrivateDto: CreatePrivateSessionDto) {
+    return this.gameService.createPrivateSession(req.user.id, createPrivateDto);
+  }
+
+  @Post('start/:sessionId')
+  @ApiOperation({ summary: 'start game session' })
+  @ApiResponse({ status: 200, description: 'Private session started' })
+  async startSession(@Request() req, @Param('sessionId') sessionId: string) {
+    return this.gameService.startPrivateSession(req.user.id, sessionId);
+  }
+
+  @Get('invitation/:invitationId/accept')
+  @ApiOperation({ summary: 'Accept invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation accepted successfully' })
+  async acceptInvitation(@Request() req, @Param('invitationId') invitationId: string) {
+    return this.gameService.acceptInvitation(req.user.id, invitationId);
+  }
+
+  @Post('invitation/:invitationId/reject')
+  @ApiOperation({ summary: 'Reject invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation rejected successfully' })
+  async rejectInvitation(@Request() req, @Param('invitationId') invitationId: string) {
+    return this.gameService.rejectInvitation(req.user.id, invitationId);
   }
 }
