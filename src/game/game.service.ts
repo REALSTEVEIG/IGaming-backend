@@ -421,7 +421,7 @@ export class GameService {
         isPrivate: true,
         isActive: false,
         isCompleted: false,
-        startedAt: creatorId,
+        startedById: creatorId,
       },
     });
 
@@ -455,11 +455,11 @@ export class GameService {
       throw new NotFoundException('Private session not found')
     }
 
-    if (!session || !session.isPrivate) {
+    if (!session.isPrivate) {
       throw new ForbiddenException('Only creator can start session')
     }
 
-    if (!session.isActive) {
+    if (session.isActive) {
       throw new BadRequestException('Session already started')
     }
 
@@ -481,14 +481,14 @@ export class GameService {
   async acceptInvitation (userId: string, invitationId: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
-      include: {session: { include: { participant: true } }}
+      include: {session: { include: { participants: true } }}
     })
 
     if (!invitation) {
       throw new NotFoundException('Invitation not found')
     }
 
-    await this.prisma.invitation.update({where: { id: invitationId }, data: {status: 'Accepted'}})
+    await this.prisma.invitation.update({where: { id: invitationId }, data: { status: 'ACCEPTED'}})
 
     await this.prisma.sessionParticipant.create({ data: { userId, sessionId: invitation.sessionId, isInQueue: false } })
 
@@ -498,14 +498,14 @@ export class GameService {
   async rejectInvitation (userId: string, invitationId: string) {
     const invitation = await this.prisma.invitation.findUnique({
       where: { id: invitationId },
-      include: {session: { include: { participant: true } }}
+      include: {session: { include: { participants: true } }}
     })
 
     if (!invitation) {
       throw new NotFoundException('Invitation not found')
     }
 
-    await this.prisma.invitation.update({where: { id: invitationId }, data: {status: 'Rejected'}})
+    await this.prisma.invitation.update({where: { id: invitationId }, data: { status: 'REJECTED'}})
 
 
     return { message: "Invitation rejected"  }
