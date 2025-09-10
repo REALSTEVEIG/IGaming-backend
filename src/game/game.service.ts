@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { JoinSessionDto, ChooseNumberDto } from './dto/game.dto';
+import { JoinSessionDto, ChooseNumberDto, CreatePrivateSessionDto } from './dto/game.dto';
 
 @Injectable()
 export class GameService {
@@ -401,5 +401,113 @@ export class GameService {
       totalPlayers: allParticipants.length,
       totalWinners: winners.length,
     };
+  }
+
+  async createPrivateSession(creatorId: string, dto: CreatePrivateSessionDto) {
+    const maxPlayers = parseInt(process.env.MAX_PLAYERS_PER_SESSION) || 10
+
+    if (dto.invitedUsernames.length > maxPlayers - 1){
+      throw new BadRequestException(`Cannot invite more than 10 players at a time`);
+    } 
+
+    const invitedUsers = await this.prisma.user.findMany({where: { username: { in: dto.invitedUsernames } }})
+
+    if (invitedUsers.length !== dto.invitedUsernames.length) {
+      throw new NotFoundException('One or more username not found')
+    }
+
+    const session = await this.prisma.gameSession.create({
+      data: {
+        isPrivate: true,
+        isActive: false,
+        isCompleted: false,
+        startedAt: creatorId,
+      },
+    });
+
+    await this.prisma.sessionParticipant.create({
+      data: {
+        userId: creatorId,
+        sessionId: session.id,
+        isInQueue: false,
+      }
+    })
+
+    for (const invited of invitedUsers) {
+      await this.prisma.invitation.create({
+        data: {
+          sessionId: session.id,
+          invitedUserId: invited.id,
+          inviterUserId: creatorId,
+          status: 'PENDING'
+        }
+      })
+    }
+
+    return { message: 'Private session created and invition sent', session: session.id }
+
+  }
+
+  async startPrivateSession(userId: string, sessionId: string) {
+    const session = await this.prisma.gameSession.findUnique({ where: { id: sessionId }, include: { participants: true } })
+
+    if (!session) {
+      throw new NotFoundException('Private session not found')
+    }
+
+    if (!session || !session.isPrivate) {
+      throw new ForbiddenException('Only creator can start session')
+    }
+
+    if (!session.isActive) {
+      throw new BadRequestException('Session already started')
+    }
+
+    const sessionDuration = parseInt(process.env.SESSION_DURATION) || 30
+
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + sessionDuration * 1000);
+
+    return this.prisma.gameSession.update({
+      where: {id: sessionId},
+      data: {
+        startedAt: now,
+        endsAt,
+        isActive: true
+      }
+    })
+  }
+
+  async acceptInvitation (userId: string, invitationId: string) {
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { id: invitationId },
+      include: {session: { include: { participant: true } }}
+    })
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found')
+    }
+
+    await this.prisma.invitation.update({where: { id: invitationId }, data: {status: 'Accepted'}})
+
+    await this.prisma.sessionParticipant.create({ data: { userId, sessionId: invitation.sessionId, isInQueue: false } })
+
+    return { message: "Invitation accepted"  }
+  }  
+
+  async rejectInvitation (userId: string, invitationId: string) {
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { id: invitationId },
+      include: {session: { include: { participant: true } }}
+    })
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found')
+    }
+
+    await this.prisma.invitation.update({where: { id: invitationId }, data: {status: 'Rejected'}})
+
+
+    return { message: "Invitation rejected"  }
   }
 }

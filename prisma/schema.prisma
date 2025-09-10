@@ -12,39 +12,66 @@ model User {
   username  String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  sessions SessionParticipant[]
+  sessions  SessionParticipant[]
+  invitationsSent     Invitation[] @relation("Inviter")
+  invitationsReceived Invitation[] @relation("Invited")
 
   @@map("users")
 }
 
 model GameSession {
-  id           String    @id @default(cuid())
-  sessionNumber Int      @unique @default(autoincrement())
-  startedAt    DateTime  @default(now())
-  endsAt       DateTime
-  winningNumber Int?
-  isActive     Boolean   @default(true)
-  isCompleted  Boolean   @default(false)
-  startedById  String?
-
-  participants SessionParticipant[]
+  id             String   @id @default(cuid())
+  sessionNumber  Int      @unique @default(autoincrement())
+  // CHANGED: Make startedAt optional (null for pending private sessions)
+  startedAt      DateTime?
+  // CHANGED: Make endsAt optional
+  endsAt         DateTime?
+  winningNumber  Int?
+  isActive       Boolean  @default(false) // CHANGED: Default false (activate on start)
+  isCompleted    Boolean  @default(false)
+  startedById    String?
+  // NEW: Flag for private sessions
+  isPrivate      Boolean  @default(false)
+  participants   SessionParticipant[]
+  // NEW: Invitations for private sessions
+  invitations    Invitation[]
 
   @@map("game_sessions")
 }
 
 model SessionParticipant {
-  id            String   @id @default(cuid())
-  userId        String
-  sessionId     String
-  chosenNumber  Int?
-  isWinner      Boolean  @default(false)
-  joinedAt      DateTime @default(now())
-  isInQueue     Boolean  @default(false)
-
-  user    User        @relation(fields: [userId], references: [id])
-  session GameSession @relation(fields: [sessionId], references: [id])
+  id         String   @id @default(cuid())
+  userId     String
+  sessionId  String
+  chosenNumber Int?
+  isWinner   Boolean  @default(false)
+  joinedAt   DateTime @default(now())
+  isInQueue  Boolean  @default(false)
+  user       User     @relation(fields: [userId], references: [id])
+  session    GameSession @relation(fields: [sessionId], references: [id])
 
   @@unique([userId, sessionId])
   @@map("session_participants")
+}
+
+// NEW: Model for invitations
+model Invitation {
+  id             String            @id @default(cuid())
+  sessionId      String
+  invitedUserId  String
+  inviterUserId  String
+  status         InvitationStatus @default(PENDING)
+  createdAt      DateTime         @default(now())
+  session        GameSession      @relation(fields: [sessionId], references: [id])
+  invitedUser    User             @relation("Invited", fields: [invitedUserId], references: [id])
+  inviterUser    User             @relation("Inviter", fields: [inviterUserId], references: [id])
+
+  @@map("invitations")
+}
+
+// NEW: Enum for invitation status
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
 }
